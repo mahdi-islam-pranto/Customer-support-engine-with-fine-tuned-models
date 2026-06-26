@@ -1,0 +1,61 @@
+# ── Stage 1: base image ───────────────────────────────────────────────────────
+# Use a slim Python image. If you have an NVIDIA GPU on the host and
+# want CUDA acceleration, swap this for:
+#   FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+# and install python3.11 manually.
+FROM python:3.11-slim
+
+# ── System deps ───────────────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git \
+        curl \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Working directory ─────────────────────────────────────────────────────────
+WORKDIR /app
+
+# ── Python dependencies ───────────────────────────────────────────────────────
+# Copy requirements first so Docker layer-caches the install.
+# If source code changes but requirements don't, the pip install
+# layer is reused and the build is much faster.
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip \
+ && pip install --no-cache-dir -r requirements.txt
+
+# ── App source + local model assets ──────────────────────────────────────────
+COPY app.py .
+
+# Copy your local FAISS files into the image.
+# Folder layout expected inside container:
+#   /app/models/faiss/faq_index.faiss
+#   /app/models/faiss/faq_metadata.pkl
+COPY models/ models/
+
+# ── Streamlit config ──────────────────────────────────────────────────────────
+# Disable the "welcome" screen and set a sensible server config.
+RUN mkdir -p /app/.streamlit
+COPY .streamlit/config.toml .streamlit/config.toml
+
+# ── Non-root user (good practice) ────────────────────────────────────────────
+RUN useradd -m -u 1000 appuser \
+ && chown -R appuser:appuser /app
+USER appuser
+
+# HuggingFace cache — store inside the container's home directory
+ENV HF_HOME=/home/appuser/.cache/huggingface
+ENV TRANSFORMERS_CACHE=/home/appuser/.cache/huggingface/hub
+
+# ── Port ──────────────────────────────────────────────────────────────────────
+EXPOSE 8501
+
+# ── Health check ─────────────────────────────────────────────────────────────
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8501/_stcore/health || exit 1
+
+# ── Entrypoint ────────────────────────────────────────────────────────────────
+ENTRYPOINT ["streamlit", "run", "app.py", \
+            "--server.port=8501", \
+            "--server.address=0.0.0.0", \
+            "--server.headless=true", \
+            "--browser.gatherUsageStats=false"]

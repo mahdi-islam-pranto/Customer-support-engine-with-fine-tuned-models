@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+.git/
+.gitignore
+*.md
+.env
+.DS_Store
+
+# Don't bake in local venvs
+venv/
+.venv/
+env/
+
+# Backend folder — not needed in this image
+backend/
