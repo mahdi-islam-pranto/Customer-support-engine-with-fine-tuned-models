@@ -10,7 +10,6 @@ import pickle
 from pathlib import Path
 
 import faiss
-import numpy as np
 from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
@@ -53,9 +52,25 @@ class FAISSRetriever:
         self.index = faiss.read_index(str(index_path))
 
         with open(metadata_path, "rb") as f:
-            self.metadata = pickle.load(f)
-        # metadata is expected to be a list of dicts:
-        # [{"question": "...", "answer": "..."}, ...]
+            raw = pickle.load(f)
+
+        # Normalise to list-of-dicts regardless of how the pickle was built.
+        # Supported formats:
+        #   A) list of strings   → ["answer text", ...]           (your current format)
+        #   B) list of dicts     → [{"question":..,"answer":..}]  (extended format)
+        if isinstance(raw, list) and len(raw) > 0:
+            if isinstance(raw[0], str):
+                # Format A — only answers, no question text stored
+                self.metadata = [{"question": "", "answer": a} for a in raw]
+                logger.info("Metadata format: list of strings (answers only)")
+            elif isinstance(raw[0], dict):
+                # Format B — already has question/answer keys
+                self.metadata = raw
+                logger.info("Metadata format: list of dicts")
+            else:
+                raise ValueError(f"Unexpected metadata item type: {type(raw[0])}")
+        else:
+            raise ValueError(f"Unexpected metadata format: {type(raw)}")
 
         logger.info(f"Loading sentence-transformer: {embedding_model} ...")
         self.embedder = SentenceTransformer(embedding_model)

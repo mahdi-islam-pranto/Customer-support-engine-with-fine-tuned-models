@@ -6,3 +6,4 @@ faiss-cpu
 sentence-transformers
 mlflow
 evaluate
+peft
